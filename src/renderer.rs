@@ -1,5 +1,5 @@
 use crate::gpx::GpxRoute;
-use crate::map_math::{tile_bounds_lat_lon, MapCamera};
+use crate::map_math::{haversine_km, tile_bounds_lat_lon, MapCamera};
 use crate::markers::MapMarker;
 use crate::mvt::DecodedTile;
 use crate::pmtiles_reader::PmTilesArchive;
@@ -21,6 +21,16 @@ struct RenderTileItem {
     tile: Arc<DecodedTile>,
 }
 
+pub fn format_distance_km(km: f64) -> String {
+    if km < 1.0 {
+        format!("{:.0} m", km * 1000.0)
+    } else if km < 100.0 {
+        format!("{km:.2} km")
+    } else {
+        format!("{km:.1} km")
+    }
+}
+
 pub fn render_map(
     painter: &Painter,
     map_rect: Rect,
@@ -30,6 +40,8 @@ pub fn render_map(
     tile_manager: &mut TileManager,
     markers: &[MapMarker],
     routes: &[GpxRoute],
+    measure_points: &[(f64, f64)],
+    measure_cursor: Option<(f64, f64)>,
     show_buildings: bool,
     show_labels: bool,
 ) {
@@ -243,7 +255,8 @@ pub fn render_map(
                 let (_, fill_w) = road_widths(line.kind, camera.zoom);
                 let (_, mut fill_c) = palette.road_colors(line.kind);
                 if line.is_tunnel {
-                    fill_c = Color32::from_rgba_unmultiplied(fill_c.r(), fill_c.g(), fill_c.b(), 150);
+                    fill_c =
+                        Color32::from_rgba_unmultiplied(fill_c.r(), fill_c.g(), fill_c.b(), 150);
                 }
                 draw_polyline(
                     &map_painter,
@@ -279,8 +292,20 @@ pub fn render_map(
         draw_tile_labels(&map_painter, map_rect, &render_tiles, camera.zoom, palette);
     }
 
-    // Pass 9: User Markers (always crisp on top!)
+    // Pass 9: User Markers
     draw_markers(&map_painter, map_rect, camera, markers, palette);
+
+    // Pass 10: Multi-point Distance Measurement Overlay
+    if !measure_points.is_empty() {
+        draw_measure_overlay(
+            &map_painter,
+            map_rect,
+            camera,
+            measure_points,
+            measure_cursor,
+            palette,
+        );
+    }
 }
 
 fn tile_screen_rect(
@@ -633,5 +658,152 @@ fn draw_markers(
             );
             painter.galley(text_pos, galley, pill_text);
         }
+    }
+}
+
+fn draw_measure_overlay(
+    painter: &Painter,
+    map_rect: Rect,
+    camera: &MapCamera,
+    points: &[(f64, f64)],
+    cursor: Option<(f64, f64)>,
+    palette: &MapPalette,
+) {
+    let measure_color = Color32::from_rgb(0, 152, 232);
+    let casing_color = if palette.dark_mode {
+        Color32::from_rgba_unmultiplied(15, 20, 26, 230)
+    } else {
+        Color32::from_rgba_unmultiplied(255, 255, 255, 235)
+    };
+    let pill_bg = if palette.dark_mode {
+        Color32::from_rgba_unmultiplied(24, 30, 38, 235)
+    } else {
+        Color32::from_rgba_unmultiplied(255, 255, 255, 240)
+    };
+    let pill_text = if palette.dark_mode {
+        Color32::from_rgb(236, 242, 248)
+    } else {
+        Color32::from_rgb(24, 30, 38)
+    };
+
+    let screen_pts: Vec<Pos2> = points
+        .iter()
+        .map(|&(lat, lon)| camera.lat_lon_to_screen(lat, lon, map_rect))
+        .collect();
+
+    if screen_pts.len() >= 2 {
+        painter.add(Shape::line(
+            screen_pts.clone(),
+            Stroke::new(5.5_f32, casing_color),
+        ));
+        painter.add(Shape::line(
+            screen_pts.clone(),
+            Stroke::new(3.0_f32, measure_color),
+        ));
+    }
+
+    for i in 0..points.len().saturating_sub(1) {
+        let p0 = screen_pts[i];
+        let p1 = screen_pts[i + 1];
+        if p0.distance(p1) >= 48.0 {
+            let seg_km = haversine_km(points[i].0, points[i].1, points[i + 1].0, points[i + 1].1);
+            let mid = Pos2::new((p0.x + p1.x) * 0.5, (p0.y + p1.y) * 0.5);
+            if map_rect.contains(mid) {
+                draw_distance_pill(
+                    painter,
+                    mid,
+                    &format_distance_km(seg_km),
+                    pill_bg,
+                    measure_color,
+                    pill_text,
+                );
+            }
+        }
+    }
+
+    if let (Some(&(last_lat, last_lon)), Some(&last_pos), Some((clat, clon))) =
+        (points.last(), screen_pts.last(), cursor)
+    {
+        let cur_pos = camera.lat_lon_to_screen(clat, clon, map_rect);
+        if last_pos.distance(cur_pos) > 4.0 {
+            draw_dashed_segment(
+                painter,
+                last_pos,
+                cur_pos,
+                8.0,
+                5.0,
+                Stroke::new(2.2_f32, Color32::from_rgba_unmultiplied(0, 152, 232, 185)),
+            );
+            let seg_km = haversine_km(last_lat, last_lon, clat, clon);
+            if last_pos.distance(cur_pos) >= 56.0 {
+                let mid = Pos2::new(
+                    (last_pos.x + cur_pos.x) * 0.5,
+                    (last_pos.y + cur_pos.y) * 0.5,
+                );
+                draw_distance_pill(
+                    painter,
+                    mid,
+                    &format!("+{}", format_distance_km(seg_km)),
+                    pill_bg,
+                    measure_color,
+                    pill_text,
+                );
+            }
+        }
+    }
+
+    for (idx, &pos) in screen_pts.iter().enumerate() {
+        if !map_rect.expand(24.0).contains(pos) {
+            continue;
+        }
+        painter.circle_filled(pos, 8.5, measure_color);
+        painter.circle_stroke(pos, 8.5, Stroke::new(1.8_f32, Color32::WHITE));
+        painter.text(
+            pos,
+            Align2::CENTER_CENTER,
+            format!("{}", idx + 1),
+            FontId::proportional(10.0),
+            Color32::WHITE,
+        );
+    }
+}
+
+fn draw_distance_pill(
+    painter: &Painter,
+    center: Pos2,
+    label: &str,
+    bg: Color32,
+    border: Color32,
+    text_color: Color32,
+) {
+    let font = FontId::proportional(11.0);
+    let galley = painter.layout_no_wrap(label.to_string(), font, text_color);
+    let size = galley.size();
+    let top_left = Pos2::new(center.x - size.x * 0.5, center.y - size.y * 0.5);
+    let bg_rect = Rect::from_min_size(top_left, size).expand2(Vec2::new(6.0, 2.0));
+    painter.rect_filled(bg_rect, Rounding::same(5.0), bg);
+    painter.rect_stroke(bg_rect, Rounding::same(5.0), Stroke::new(1.0_f32, border));
+    painter.galley(top_left, galley, text_color);
+}
+
+fn draw_dashed_segment(
+    painter: &Painter,
+    a: Pos2,
+    b: Pos2,
+    dash_len: f32,
+    gap_len: f32,
+    stroke: Stroke,
+) {
+    let delta = b - a;
+    let total = delta.length();
+    if total < 1.0 {
+        return;
+    }
+    let dir = delta / total;
+    let mut d = 0.0_f32;
+    while d < total {
+        let end_d = (d + dash_len).min(total);
+        painter.line_segment([a + dir * d, a + dir * end_d], stroke);
+        d += dash_len + gap_len;
     }
 }
