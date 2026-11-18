@@ -122,7 +122,7 @@ pub fn render_map(
             append_polygon_to_mesh(&mut mesh, poly, item.draw_origin, item.draw_size, color);
         }
         if !mesh.vertices.is_empty() && !mesh.indices.is_empty() {
-            tile_painter.add(Shape::Mesh(Arc::new(mesh)));
+            tile_painter.add(Shape::Mesh(mesh));
         }
     }
 
@@ -163,7 +163,7 @@ pub fn render_map(
                 }
             }
             if !mesh.vertices.is_empty() && !mesh.indices.is_empty() {
-                tile_painter.add(Shape::Mesh(Arc::new(mesh)));
+                tile_painter.add(Shape::Mesh(mesh));
             }
         }
     }
@@ -172,12 +172,12 @@ pub fn render_map(
     for item in &render_tiles {
         for boundary in &item.tile.boundaries {
             let (width, color) = match boundary.kind {
-                BoundaryKind::Country => (1.8, palette.boundary_country),
+                BoundaryKind::Country => (1.8_f32, palette.boundary_country),
                 BoundaryKind::Region => {
                     if camera.zoom < 5.0 {
                         continue;
                     }
-                    (1.0, palette.boundary_region)
+                    (1.0_f32, palette.boundary_region)
                 }
             };
             draw_polyline(
@@ -261,7 +261,7 @@ pub fn render_map(
         let stroke_c = Color32::from_rgb(46, 134, 222);
         let fill_c = Color32::from_rgba_unmultiplied(46, 134, 222, 35);
         map_painter.rect_filled(bbox, Rounding::same(4.0), fill_c);
-        map_painter.rect_stroke(bbox, Rounding::same(4.0), Stroke::new(1.5, stroke_c));
+        map_painter.rect_stroke(bbox, Rounding::same(4.0), Stroke::new(1.5_f32, stroke_c));
         map_painter.text(
             bbox.center(),
             Align2::CENTER_CENTER,
@@ -308,7 +308,7 @@ fn draw_subtle_grid(painter: &Painter, map_rect: Rect, camera: &MapCamera, palet
     } else {
         Color32::from_rgba_unmultiplied(0, 0, 0, 12)
     };
-    let stroke = Stroke::new(1.0, grid_color);
+    let stroke = Stroke::new(1.0_f32, grid_color);
     let step_deg = if camera.zoom < 4.0 {
         30.0
     } else if camera.zoom < 7.0 {
@@ -528,19 +528,25 @@ fn draw_gpx_routes(
                 .map(|&(lat, lon)| camera.lat_lon_to_screen(lat, lon, map_rect))
                 .collect();
 
-            painter.add(Shape::line(screen_pts.clone(), Stroke::new(6.0, casing_c)));
-            painter.add(Shape::line(screen_pts.clone(), Stroke::new(3.5, route_color)));
+            painter.add(Shape::line(
+                screen_pts.clone(),
+                Stroke::new(6.0_f32, casing_c),
+            ));
+            painter.add(Shape::line(
+                screen_pts.clone(),
+                Stroke::new(3.5_f32, route_color),
+            ));
 
             if let Some(&start) = screen_pts.first() {
                 if map_rect.contains(start) {
                     painter.circle_filled(start, 5.5, Color32::from_rgb(46, 178, 96));
-                    painter.circle_stroke(start, 5.5, Stroke::new(1.8, Color32::WHITE));
+                    painter.circle_stroke(start, 5.5, Stroke::new(1.8_f32, Color32::WHITE));
                 }
             }
             if let Some(&end) = screen_pts.last() {
                 if map_rect.contains(end) {
                     painter.circle_filled(end, 5.5, Color32::from_rgb(225, 68, 68));
-                    painter.circle_stroke(end, 5.5, Stroke::new(1.8, Color32::WHITE));
+                    painter.circle_stroke(end, 5.5, Stroke::new(1.8_f32, Color32::WHITE));
                 }
             }
         }
@@ -549,7 +555,7 @@ fn draw_gpx_routes(
             let pos = camera.lat_lon_to_screen(lat, lon, map_rect);
             if map_rect.contains(pos) {
                 painter.circle_filled(pos, 4.5, route_color);
-                painter.circle_stroke(pos, 4.5, Stroke::new(1.5, Color32::WHITE));
+                painter.circle_stroke(pos, 4.5, Stroke::new(1.5_f32, Color32::WHITE));
                 if !wname.is_empty() {
                     painter.text(
                         pos + Vec2::new(0.0, -11.0),
@@ -607,10 +613,10 @@ fn draw_markers(
         pin_mesh.colored_vertex(head + Vec2::new(7.0, 2.0), pin_color);
         pin_mesh.colored_vertex(base, pin_color);
         pin_mesh.add_triangle(0, 1, 2);
-        painter.add(Shape::Mesh(Arc::new(pin_mesh)));
+        painter.add(Shape::Mesh(pin_mesh));
 
         painter.circle_filled(head, 8.5, pin_color);
-        painter.circle_stroke(head, 8.5, Stroke::new(1.8, Color32::WHITE));
+        painter.circle_stroke(head, 8.5, Stroke::new(1.8_f32, Color32::WHITE));
         painter.circle_filled(head, 3.0, Color32::WHITE);
 
         if !marker.name.is_empty() {
@@ -620,7 +626,11 @@ fn draw_markers(
             let text_pos = Pos2::new(base.x - tsize.x * 0.5, head.y - 14.0 - tsize.y);
             let bg_rect = Rect::from_min_size(text_pos, tsize).expand2(Vec2::new(6.0, 2.5));
             painter.rect_filled(bg_rect, Rounding::same(5.0), pill_bg);
-            painter.rect_stroke(bg_rect, Rounding::same(5.0), Stroke::new(1.0, pill_border));
+            painter.rect_stroke(
+                bg_rect,
+                Rounding::same(5.0),
+                Stroke::new(1.0_f32, pill_border),
+            );
             painter.galley(text_pos, galley, pill_text);
         }
     }
