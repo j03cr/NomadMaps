@@ -1,0 +1,29 @@
+[package]
+name = "nomad_maps"
+version = "1.0.0"
+edition = "2021"
+
+[[bin]]
+name = "NomadMaps"
+path = "src/main.rs"
+
+[dependencies]
+eframe = { version = "0.29.1", default-features = false, features = ["default_fonts", "wgpu"] }
+egui = "0.29.1"
+prost = "0.13"
+flate2 = "1.0"
+brotli = "7.0"
+ruzstd = "~0.7.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+roxmltree = "0.20"
+rfd = "0.15"
+
+[build-dependencies]
+winresource = "0.1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
