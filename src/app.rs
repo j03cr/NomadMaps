@@ -434,7 +434,7 @@ impl eframe::App for NomadMapsApp {
                         Color32::from_rgb(252, 252, 250)
                     })
                     .stroke(Stroke::new(
-                        1.0,
+                        1.0_f32,
                         if dark_mode {
                             Color32::from_rgb(46, 54, 64)
                         } else {
@@ -517,7 +517,7 @@ impl eframe::App for NomadMapsApp {
                         Color32::from_rgb(248, 247, 243)
                     })
                     .stroke(Stroke::new(
-                        1.0,
+                        1.0_f32,
                         if dark_mode {
                             Color32::from_rgb(46, 54, 64)
                         } else {
@@ -579,7 +579,7 @@ impl eframe::App for NomadMapsApp {
                             Color32::from_rgb(252, 251, 248)
                         })
                         .stroke(Stroke::new(
-                            1.0,
+                            1.0_f32,
                             if dark_mode {
                                 Color32::from_rgb(46, 54, 64)
                             } else {
@@ -690,7 +690,7 @@ impl eframe::App for NomadMapsApp {
                     self.cursor_lat_lon = Some(self.camera.screen_to_lat_lon(hover_pos, map_rect));
                     let scroll_y = ctx.input(|i| i.smooth_scroll_delta.y);
                     if scroll_y.abs() > 0.01 {
-                        let delta_zoom = (scroll_y * 0.005).clamp(-1.5, 1.5);
+                        let delta_zoom = (scroll_y as f64 * 0.005).clamp(-1.5, 1.5);
                         self.camera
                             .zoom_at_screen_pos(delta_zoom, hover_pos, map_rect);
                         self.context_menu = None;
@@ -803,7 +803,7 @@ impl NomadMapsApp {
                         })
                         .rounding(Rounding::same(6.0))
                         .stroke(Stroke::new(
-                            1.0,
+                            1.0_f32,
                             if dark {
                                 Color32::from_rgb(54, 64, 76)
                             } else {
@@ -1032,7 +1032,7 @@ impl NomadMapsApp {
                     })
                     .rounding(Rounding::same(10.0))
                     .stroke(Stroke::new(
-                        1.0,
+                        1.0_f32,
                         if dark {
                             Color32::from_rgb(66, 76, 90)
                         } else {
@@ -1093,7 +1093,7 @@ impl NomadMapsApp {
                 Frame::none()
                     .fill(bg)
                     .rounding(Rounding::same(10.0))
-                    .stroke(Stroke::new(1.0, border))
+                    .stroke(Stroke::new(1.0_f32, border))
                     .inner_margin(Margin::same(6.0))
                     .show(ui, |ui| {
                         ui.vertical_centered(|ui| {
@@ -1168,7 +1168,7 @@ impl NomadMapsApp {
                     })
                     .rounding(Rounding::same(8.0))
                     .stroke(Stroke::new(
-                        1.0,
+                        1.0_f32,
                         if dark {
                             Color32::from_rgb(70, 80, 94)
                         } else {
@@ -1253,7 +1253,7 @@ impl NomadMapsApp {
                         let btn = Button::new(RichText::new(*label).color(Color32::WHITE).small())
                             .fill(color)
                             .stroke(if selected {
-                                Stroke::new(2.0, Color32::BLACK)
+                                Stroke::new(2.0_f32, Color32::BLACK)
                             } else {
                                 Stroke::NONE
                             });
@@ -1405,7 +1405,7 @@ impl NomadMapsApp {
                         })
                         .rounding(Rounding::same(8.0))
                         .stroke(Stroke::new(
-                            1.0,
+                            1.0_f32,
                             if dark {
                                 Color32::from_rgb(60, 70, 84)
                             } else {
