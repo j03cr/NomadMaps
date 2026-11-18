@@ -1,9 +1,9 @@
 use crate::config::{AppConfig, PortablePaths};
 use crate::gpx::{parse_gpx_file, GpxRoute};
-use crate::map_math::MapCamera;
+use crate::map_math::{haversine_km, MapCamera};
 use crate::markers::{MarkerStore, MARKER_COLOR_PRESETS};
 use crate::pmtiles_reader::PmTilesArchive;
-use crate::renderer::{render_map, MapRenderLayer};
+use crate::renderer::{format_distance_km, render_map, MapRenderLayer};
 use crate::style::MapPalette;
 use crate::tile_manager::TileManager;
 use egui::{
@@ -71,6 +71,8 @@ pub struct NomadMapsApp {
     sidebar_tab: SidebarTab,
     last_map_rect: egui::Rect,
     cursor_lat_lon: Option<(f64, f64)>,
+    measure_mode: bool,
+    measure_points: Vec<(f64, f64)>,
     context_menu: Option<ContextMenuState>,
     new_marker: NewMarkerDialog,
     help_modal: HelpModalState,
@@ -103,6 +105,8 @@ impl NomadMapsApp {
             sidebar_tab: SidebarTab::Maps,
             last_map_rect: egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(980.0, 700.0)),
             cursor_lat_lon: None,
+            measure_mode: false,
+            measure_points: Vec::new(),
             context_menu: None,
             new_marker: NewMarkerDialog {
                 open: false,
@@ -394,6 +398,14 @@ impl NomadMapsApp {
             self.center_on_header(&h);
         }
     }
+
+    fn measured_total_km(&self) -> f64 {
+        let mut total = 0.0_f64;
+        for pair in self.measure_points.windows(2) {
+            total += haversine_km(pair[0].0, pair[0].1, pair[1].0, pair[1].1);
+        }
+        total
+    }
 }
 
 type HashMapLookup = std::collections::HashMap<String, LoadedMap>;
@@ -424,7 +436,9 @@ impl eframe::App for NomadMapsApp {
 
         let dark_mode = self.config.dark_mode;
         let accent = Color32::from_rgb(38, 152, 88);
+        let measure_accent = Color32::from_rgb(0, 152, 232);
 
+        // Top Toolbar
         egui::TopBottomPanel::top("top_toolbar")
             .frame(
                 Frame::none()
@@ -483,6 +497,21 @@ impl eframe::App for NomadMapsApp {
                         self.add_gpx_via_dialog(now);
                     }
 
+                    let measure_btn = if self.measure_mode {
+                        Button::new(
+                            RichText::new("Midiendo distancia (Activo)")
+                                .color(Color32::WHITE)
+                                .strong(),
+                        )
+                        .fill(measure_accent)
+                    } else {
+                        Button::new("Medir distancia")
+                    };
+                    if ui.add(measure_btn).clicked() {
+                        self.measure_mode = !self.measure_mode;
+                        self.context_menu = None;
+                    }
+
                     let help_btn = Button::new(
                         RichText::new("? Descargar Mapas / Ayuda")
                             .color(Color32::WHITE)
@@ -508,6 +537,7 @@ impl eframe::App for NomadMapsApp {
                 });
             });
 
+        // Bottom Status Bar
         egui::TopBottomPanel::bottom("bottom_status_bar")
             .frame(
                 Frame::none()
@@ -557,14 +587,21 @@ impl eframe::App for NomadMapsApp {
                         ui.label(RichText::new(format!("Cargando {pending} tiles...")).small());
                     }
 
-                    if let Some((msg, _)) = &self.status_banner {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(
+                            RichText::new("Desarrollado por Jorge Cuevas Ramos")
+                                .small()
+                                .weak(),
+                        );
+                        if let Some((msg, _)) = &self.status_banner {
+                            ui.separator();
                             ui.label(RichText::new(msg).small().color(accent));
-                        });
-                    }
+                        }
+                    });
                 });
             });
 
+        // Collapsible Left Sidebar
         if self.sidebar_open {
             egui::SidePanel::left("sidebar_panel")
                 .resizable(true)
@@ -612,6 +649,7 @@ impl eframe::App for NomadMapsApp {
                 });
         }
 
+        // Main Map Canvas
         egui::CentralPanel::default()
             .frame(Frame::none())
             .show(ctx, |ui| {
@@ -646,6 +684,17 @@ impl eframe::App for NomadMapsApp {
                                 .zoom_at_screen_pos(-0.75, map_rect.center(), map_rect);
                             self.mark_dirty(now);
                         }
+                        if self.measure_mode && i.key_pressed(egui::Key::Backspace) {
+                            self.measure_points.pop();
+                        }
+                        if i.key_pressed(egui::Key::Escape) {
+                            if self.context_menu.is_some() {
+                                self.context_menu = None;
+                            } else if self.measure_mode {
+                                self.measure_mode = false;
+                                self.measure_points.clear();
+                            }
+                        }
                     });
                     if kb_pan != Vec2::ZERO {
                         self.camera.pan_by_pixels(kb_pan);
@@ -663,7 +712,7 @@ impl eframe::App for NomadMapsApp {
                     }
                 }
 
-                if response.double_clicked_by(PointerButton::Primary) {
+                if !self.measure_mode && response.double_clicked_by(PointerButton::Primary) {
                     if let Some(pos) = response.interact_pointer_pos() {
                         self.camera.zoom_at_screen_pos(1.0, pos, map_rect);
                         self.context_menu = None;
@@ -673,6 +722,12 @@ impl eframe::App for NomadMapsApp {
 
                 if response.clicked_by(PointerButton::Primary) {
                     self.context_menu = None;
+                    if self.measure_mode {
+                        if let Some(pos) = response.interact_pointer_pos() {
+                            let (lat, lon) = self.camera.screen_to_lat_lon(pos, map_rect);
+                            self.measure_points.push((lat, lon));
+                        }
+                    }
                 }
 
                 if response.secondary_clicked() {
@@ -717,6 +772,12 @@ impl eframe::App for NomadMapsApp {
                     })
                     .collect();
 
+                let measure_cursor = if self.measure_mode {
+                    self.cursor_lat_lon
+                } else {
+                    None
+                };
+
                 render_map(
                     &painter,
                     map_rect,
@@ -726,12 +787,18 @@ impl eframe::App for NomadMapsApp {
                     &mut self.tile_manager,
                     &self.marker_store.markers,
                     &self.routes,
+                    &self.measure_points,
+                    measure_cursor,
                     self.config.show_buildings,
                     self.config.show_labels,
                 );
 
-                if active_layers.is_empty() {
+                if active_layers.is_empty() && !self.measure_mode {
                     self.ui_empty_map_overlay(ctx, map_rect, now);
+                }
+
+                if self.measure_mode || !self.measure_points.is_empty() {
+                    self.ui_measure_hud(ctx, map_rect);
                 }
 
                 self.ui_floating_controls(ctx, map_rect, now);
@@ -1016,6 +1083,112 @@ impl NomadMapsApp {
         }
     }
 
+    fn ui_measure_hud(&mut self, ctx: &Context, map_rect: egui::Rect) {
+        let dark = self.config.dark_mode;
+        let measure_accent = Color32::from_rgb(0, 152, 232);
+
+        let total_km = self.measured_total_km();
+        let preview_km = match (self.measure_points.last(), self.cursor_lat_lon) {
+            (Some(&(lat, lon)), Some((clat, clon))) if self.measure_mode => {
+                Some(haversine_km(lat, lon, clat, clon))
+            }
+            _ => None,
+        };
+
+        let pos = Pos2::new(
+            map_rect.left() + 16.0,
+            (map_rect.bottom() - 122.0).max(map_rect.top() + 16.0),
+        );
+
+        egui::Area::new(egui::Id::new("measure_hud"))
+            .fixed_pos(pos)
+            .show(ctx, |ui| {
+                Frame::none()
+                    .fill(if dark {
+                        Color32::from_rgba_unmultiplied(26, 32, 40, 240)
+                    } else {
+                        Color32::from_rgba_unmultiplied(255, 255, 255, 245)
+                    })
+                    .rounding(Rounding::same(10.0))
+                    .stroke(Stroke::new(1.5_f32, measure_accent))
+                    .inner_margin(Margin::same(10.0))
+                    .show(ui, |ui| {
+                        ui.set_min_width(270.0);
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new("Medicion de distancias")
+                                    .strong()
+                                    .color(measure_accent),
+                            );
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.label(
+                                        RichText::new(format!(
+                                            "Puntos: {}",
+                                            self.measure_points.len()
+                                        ))
+                                        .small()
+                                        .weak(),
+                                    );
+                                },
+                            );
+                        });
+
+                        ui.add_space(2.0);
+                        ui.label(
+                            RichText::new(format!("Total: {}", format_distance_km(total_km)))
+                                .strong()
+                                .size(17.0),
+                        );
+
+                        if let Some(p_km) = preview_km {
+                            ui.label(
+                                RichText::new(format!(
+                                    "Al cursor: +{} (Total: {})",
+                                    format_distance_km(p_km),
+                                    format_distance_km(total_km + p_km)
+                                ))
+                                .small()
+                                .weak(),
+                            );
+                        } else if self.measure_mode {
+                            ui.label(
+                                RichText::new("Haz clic en el mapa para añadir puntos.")
+                                    .small()
+                                    .weak(),
+                            );
+                        }
+
+                        ui.add_space(6.0);
+                        ui.horizontal(|ui| {
+                            if ui
+                                .add_enabled(
+                                    !self.measure_points.is_empty(),
+                                    Button::new("Deshacer"),
+                                )
+                                .clicked()
+                            {
+                                self.measure_points.pop();
+                            }
+                            if ui
+                                .add_enabled(
+                                    !self.measure_points.is_empty(),
+                                    Button::new("Limpiar"),
+                                )
+                                .clicked()
+                            {
+                                self.measure_points.clear();
+                            }
+                            if ui.button("Cerrar").clicked() {
+                                self.measure_mode = false;
+                                self.measure_points.clear();
+                            }
+                        });
+                    });
+            });
+    }
+
     fn ui_empty_map_overlay(&mut self, ctx: &Context, map_rect: egui::Rect, now: f64) {
         let dark = self.config.dark_mode;
         egui::Area::new(egui::Id::new("empty_map_overlay"))
@@ -1155,6 +1328,7 @@ impl NomadMapsApp {
 
         let mut close_menu = false;
         let mut open_marker_dialog = false;
+        let mut start_measure = false;
 
         let dark = self.config.dark_mode;
         egui::Area::new(egui::Id::new("map_context_menu"))
@@ -1177,7 +1351,7 @@ impl NomadMapsApp {
                     ))
                     .inner_margin(Margin::same(8.0))
                     .show(ui, |ui| {
-                        ui.set_min_width(195.0);
+                        ui.set_min_width(210.0);
                         ui.label(
                             RichText::new(format!("{lat:.5}, {lon:.5}"))
                                 .monospace()
@@ -1187,6 +1361,10 @@ impl NomadMapsApp {
                         ui.separator();
                         if ui.button("Guardar marcador aquí").clicked() {
                             open_marker_dialog = true;
+                            close_menu = true;
+                        }
+                        if ui.button("Medir distancia desde aquí").clicked() {
+                            start_measure = true;
                             close_menu = true;
                         }
                         if ui.button("Copiar coordenadas").clicked() {
@@ -1199,8 +1377,9 @@ impl NomadMapsApp {
                     });
             });
 
-        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-            close_menu = true;
+        if start_measure {
+            self.measure_mode = true;
+            self.measure_points.push((lat, lon));
         }
         if open_marker_dialog {
             self.new_marker = NewMarkerDialog {
@@ -1326,6 +1505,13 @@ impl NomadMapsApp {
             .default_size([700.0, 560.0])
             .show(ctx, |ui| {
                 ScrollArea::vertical().show(ui, |ui| {
+                    ui.label(
+                        RichText::new("NomadMaps Portable — Desarrollado por Jorge Cuevas Ramos")
+                            .strong()
+                            .color(accent),
+                    );
+                    ui.add_space(6.0);
+
                     ui.label(RichText::new("Carpeta portable de mapas detectada:").strong());
                     let maps_path_str = self.paths.maps_dir.display().to_string();
                     ui.horizontal(|ui| {
