@@ -19,8 +19,10 @@ fn main() {
     res.set("ProductName", "NomadMaps");
     res.set(
         "FileDescription",
-        "NomadMaps - Mapas Vectoriales Offline",
+        "NomadMaps - Mapas Vectoriales Offline (Desarrollado por Jorge Cuevas Ramos)",
     );
+    res.set("CompanyName", "Jorge Cuevas Ramos");
+    res.set("LegalCopyright", "Desarrollado por Jorge Cuevas Ramos");
     res.compile()
         .expect("No se pudo incrustar el icono en el ejecutable de Windows");
 }
